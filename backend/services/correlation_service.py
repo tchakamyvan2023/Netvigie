@@ -2,10 +2,14 @@
 NETVIGIE — Service Corrélation
 Applique la table de décision 2×2 avec précédence temporelle.
 Produit un verdict parmi 7 et crée les incidents.
+
+Corrections :
+- Ajout de incident_exists_recent() pour éviter les doublons
+- Fenêtre de déduplication configurable (5 min par défaut)
 """
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -17,7 +21,9 @@ from backend.models.incident import Incident
 logger = setup_logging("netvigie.service.correlation")
 
 
+# ---------------------------------------------------------------------------
 # Verdicts possibles
+# ---------------------------------------------------------------------------
 VERDICT_NORMAL = "NORMAL"
 VERDICT_TECHNICAL_ANOMALY = "TECHNICAL_ANOMALY"
 VERDICT_NETWORK_FAILURE = "NETWORK_FAILURE"
@@ -36,11 +42,16 @@ ALL_VERDICTS = {
     VERDICT_INVESTIGATION_REQUIRED,
 }
 
-
 # Seuil "attaque suspectée" (niveau Wazuh)
 SUSPECTED_ATTACK_LEVEL = 12
 
+# Fenêtre de déduplication par défaut (minutes)
+DEDUP_WINDOW_MINUTES = 5
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def _new_incident_id() -> str:
     return f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
@@ -55,6 +66,9 @@ def _precedence_ok(
     return delta_ms <= -threshold_ms
 
 
+# ---------------------------------------------------------------------------
+# Décision (table 2×2 + précédence temporelle)
+# ---------------------------------------------------------------------------
 def decide_verdict(
     diagnostic: Optional[Dict[str, Any]],
     assessment: Optional[Dict[str, Any]],
@@ -91,7 +105,6 @@ def decide_verdict(
 
     # Cas 2 : réseau anormal, sécurité normale
     if network_anomaly and not security_alert:
-        # Distinguer TECHNICAL_ANOMALY (dégradation) de NETWORK_FAILURE (injoignable)
         if network_status == "UNREACHABLE":
             verdict = VERDICT_NETWORK_FAILURE
             description = "Machine injoignable (panne réseau ou service arrêté)"
@@ -179,6 +192,36 @@ def decide_verdict(
     }
 
 
+# ---------------------------------------------------------------------------
+# Déduplication : vérifier si un incident récent identique existe déjà
+# ---------------------------------------------------------------------------
+def incident_exists_recent(
+    db: Session,
+    machine_id: Optional[int],
+    verdict: str,
+    window_minutes: int = DEDUP_WINDOW_MINUTES,
+) -> bool:
+    """
+    Vérifie si un incident identique (même machine, même verdict)
+    existe déjà dans les N dernières minutes et n'est pas fermé.
+
+    Évite les doublons à chaque itération de l'Agent Correlation
+    (qui tourne toutes les 20s).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    query = db.query(Incident).filter(
+        Incident.verdict == verdict,
+        Incident.incident_ts >= cutoff,
+        Incident.status.in_(["new", "acknowledged", "investigating"]),
+    )
+    if machine_id is not None:
+        query = query.filter(Incident.primary_machine_id == machine_id)
+    return query.first() is not None
+
+
+# ---------------------------------------------------------------------------
+# Création d'un incident
+# ---------------------------------------------------------------------------
 def create_incident(
     db: Session,
     verdict_info: Dict[str, Any],
@@ -212,6 +255,9 @@ def create_incident(
     return incident
 
 
+# ---------------------------------------------------------------------------
+# Helpers pour recommandations et actions
+# ---------------------------------------------------------------------------
 def _recommendation_for(verdict: str) -> str:
     return {
         VERDICT_NORMAL: "Aucune action requise.",
@@ -224,7 +270,10 @@ def _recommendation_for(verdict: str) -> str:
     }.get(verdict, "Investigation requise.")
 
 
-def _proposed_action_for(verdict: str, assessment: Optional[Dict[str, Any]]) -> Optional[str]:
+def _proposed_action_for(
+    verdict: str,
+    assessment: Optional[Dict[str, Any]],
+) -> Optional[str]:
     if verdict in (VERDICT_SUSPECTED_ATTACK, VERDICT_MIXED_INCIDENT):
         return "block_ip"
     if verdict == VERDICT_SECURITY_ALERT:

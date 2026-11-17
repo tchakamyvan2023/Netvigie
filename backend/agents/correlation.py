@@ -2,6 +2,10 @@
 NETVIGIE — Agent 04 : Correlation & Response
 Centre décisionnel : croise diagnostics (Agent 02) et
 assessments (Agent 03), produit un verdict, crée un incident.
+
+Corrections :
+- Utilisation de incident_exists_recent() pour éviter les doublons
+- Fenêtre de déduplication de 5 minutes
 """
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -21,6 +25,7 @@ from backend.services.correlation_service import (
     VERDICT_NORMAL,
     create_incident,
     decide_verdict,
+    incident_exists_recent,   # ← NOUVEAU : déduplication
 )
 
 
@@ -30,6 +35,9 @@ class AgentCorrelation(BaseAgent):
 
     #: Fenêtre pour considérer un diagnostic/assessment "récent"
     RECENT_WINDOW_SECONDS = 120
+
+    #: Fenêtre de déduplication (minutes)
+    DEDUP_WINDOW_MINUTES = 5
 
     def __init__(self, interval: int = None):
         super().__init__(interval)
@@ -50,6 +58,7 @@ class AgentCorrelation(BaseAgent):
 
             verdicts_count: Dict[str, int] = defaultdict(int)
             incidents_created = 0
+            incidents_skipped = 0
 
             for machine in machines:
                 try:
@@ -67,7 +76,25 @@ class AgentCorrelation(BaseAgent):
                     if verdict_info["verdict"] == VERDICT_NORMAL:
                         continue
 
-                    # Éviter les doublons : signature = machine + verdict + catégorie
+                    # ------------------------------------------------------
+                    # DÉDUPLICATION EN BASE (persistante)
+                    # ------------------------------------------------------
+                    if incident_exists_recent(
+                        db,
+                        machine_id=machine.id,
+                        verdict=verdict_info["verdict"],
+                        window_minutes=self.DEDUP_WINDOW_MINUTES,
+                    ):
+                        incidents_skipped += 1
+                        self.logger.debug(
+                            f"Incident {verdict_info['verdict']} déjà existant "
+                            f"pour {machine.hostname} (ignoré)"
+                        )
+                        continue
+
+                    # ------------------------------------------------------
+                    # DÉDUPLICATION EN MÉMOIRE (cache court terme)
+                    # ------------------------------------------------------
                     signature = (
                         machine.id,
                         verdict_info["verdict"],
@@ -75,9 +102,13 @@ class AgentCorrelation(BaseAgent):
                         (diagnostic or {}).get("diagnosed_at") or "",
                     )
                     if signature in self._processed_signatures:
+                        incidents_skipped += 1
                         continue
                     self._processed_signatures.add(signature)
 
+                    # ------------------------------------------------------
+                    # CRÉATION DE L'INCIDENT
+                    # ------------------------------------------------------
                     incident = create_incident(
                         db,
                         verdict_info,
@@ -128,7 +159,7 @@ class AgentCorrelation(BaseAgent):
                     stats["errors"] += 1
                     self.logger.error(f"Corrélation {machine.hostname} échouée : {e}")
 
-            # Limiter la taille du cache
+            # Limiter la taille du cache mémoire
             if len(self._processed_signatures) > 1000:
                 self._processed_signatures = set(
                     list(self._processed_signatures)[-500:]
@@ -136,8 +167,9 @@ class AgentCorrelation(BaseAgent):
 
             summary = ", ".join(f"{k}:{v}" for k, v in verdicts_count.items())
             stats["summary"] = (
-                f"incidents:{incidents_created} | {summary}"
-                if summary else f"incidents:{incidents_created}"
+                f"incidents:{incidents_created} skipped:{incidents_skipped} | {summary}"
+                if summary
+                else f"incidents:{incidents_created} skipped:{incidents_skipped}"
             )
 
         return stats
