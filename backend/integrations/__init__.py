@@ -1,0 +1,1 @@
+"""NETVIGIE — Intégrations externes (Wazuh, Prometheus, etc.)."""

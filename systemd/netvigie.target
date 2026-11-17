@@ -1,0 +1,8 @@
+[Unit]
+Description=NETVIGIE — Plateforme SOC complète
+Documentation=https://github.com/netvigie
+Wants=netvigie-api.service netvigie-agents.service netvigie-frontend.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

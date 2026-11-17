@@ -1,0 +1,1 @@
+"""NETVIGIE — Core package."""

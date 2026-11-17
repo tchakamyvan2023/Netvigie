@@ -1,0 +1,20 @@
+[Unit]
+Description=NETVIGIE Frontend (Vite preview)
+After=network-online.target netvigie-api.service
+Wants=network-online.target
+PartOf=netvigie.target
+
+[Service]
+Type=simple
+User=serveurminisoc
+Group=serveurminisoc
+WorkingDirectory=/home/serveurminisoc/netvigie/frontend
+EnvironmentFile=/home/serveurminisoc/netvigie/frontend/.env
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/home/serveurminisoc/netvigie/data/logs/frontend.service.log
+StandardError=append:/home/serveurminisoc/netvigie/data/logs/frontend.service.log
+
+[Install]
+WantedBy=netvigie.target

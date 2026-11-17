@@ -1,0 +1,22 @@
+[Unit]
+Description=NETVIGIE 4 Agents (Collector, Diagnostic, Security, Correlation)
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+PartOf=netvigie.target
+
+[Service]
+Type=simple
+User=serveurminisoc
+Group=serveurminisoc
+WorkingDirectory=/home/serveurminisoc/netvigie
+EnvironmentFile=/home/serveurminisoc/netvigie/.env
+ExecStart=/home/serveurminisoc/netvigie/venv/bin/python scripts/run_agents.py
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=append:/home/serveurminisoc/netvigie/data/logs/agents.service.log
+StandardError=append:/home/serveurminisoc/netvigie/data/logs/agents.service.log
+
+[Install]
+WantedBy=netvigie.target

@@ -1,0 +1,52 @@
+# ============================================================
+# NETVIGIE — Configuration métier
+# ============================================================
+
+# --- Machines exclues de la supervision ---
+exclusions:
+  hosts:
+    - "192.168.1.30"
+    - "kali"
+  description: "Kali Linux — machine d'attaque, exclue de la supervision"
+
+# --- Seuils de détection ---
+thresholds:
+  cpu_percent: 85
+  ram_percent: 85
+  disk_percent: 90
+  latency_ms: 300
+  packet_loss_percent: 3.0
+  ssh_failures_10s: 5
+  wazuh_alert_level_critical: 12
+  wazuh_alert_level_warning: 7
+
+# --- Corrélation ---
+correlation:
+  time_window_seconds: 60
+  precedence_threshold_ms: 200
+  min_confidence_for_incident: 0.5
+
+# --- Rétention ---
+retention:
+  events_days: 30
+  alerts_days: 90
+  incidents_days: 365
+
+# --- Cartographie des machines (facultatif, complète les données Wazuh) ---
+machines_metadata:
+  "192.168.1.10":
+    display_name: "Serveur PME"
+    role: "server"
+    criticality: "high"
+  "192.168.1.20":
+    display_name: "Client Ubuntu"
+    role: "workstation"
+    criticality: "medium"
+  "192.168.1.40":
+    display_name: "MiniSOC"
+    role: "soc"
+    criticality: "critical"
+  "192.168.1.50":
+    display_name: "Wazuh Server"
+    role: "siem"
+    criticality: "critical"

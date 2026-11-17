@@ -1,0 +1,1 @@
+"""NETVIGIE — Schémas Pydantic."""

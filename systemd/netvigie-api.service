@@ -1,0 +1,22 @@
+[Unit]
+Description=NETVIGIE API (FastAPI)
+Documentation=http://192.168.1.40:8000/docs
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+PartOf=netvigie.target
+
+[Service]
+Type=simple
+User=serveurminisoc
+Group=serveurminisoc
+WorkingDirectory=/home/serveurminisoc/netvigie
+EnvironmentFile=/home/serveurminisoc/netvigie/.env
+ExecStart=/home/serveurminisoc/netvigie/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/serveurminisoc/netvigie/data/logs/api.service.log
+StandardError=append:/home/serveurminisoc/netvigie/data/logs/api.service.log
+TimeoutStopSec=20
+
+[Install]
+WantedBy=netvigie.target
